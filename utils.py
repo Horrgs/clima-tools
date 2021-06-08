@@ -1,60 +1,50 @@
 import csv
 from itertools import groupby
-import os
-
-headers = []
-curated = {}
-chunks = []
+from pathlib import Path
+from os.path import exists
 
 
 def build(file_path, chunk_size=100):
-    file_path = file_path.replace("/", "\\")  # windows specific, need to handle Unix/Linux.
-
+    file_path = Path(file_path.replace("\\", "/")) # .replace to handle unix/windows support
     curate(file_path, chunk_size)
-    write_files(file_path, curated)
+
+
+def create_file(path):
+    return open(path, mode='w', newline='')
 
 
 def curate(file_path, chunk_size=100):
+    reader = csv.reader(open(file_path, 'rt'))  # start reading file. This may keep file open forever??
+    headers = next(reader)
 
     def gen_chunks():
-        reader = csv.reader(open(file_path, 'rt'))  # start reading file
         chunk = []
 
         for i, line in enumerate(reader):  # create generator for chunks
-            if i >= 1:  # this should skip the first line
-                if i % chunk_size == 0 and i > 0:  # chunk generation
-                    yield chunk
-                    chunk = []
-                chunk.append(line)
-            else:
-                headers.append(line)
-                print(headers)
+
+            if i % chunk_size == 0 and i > 0:  # chunk generation
+                yield chunk
+                del chunk[:]
+            chunk.append(line)
+
         yield chunk
 
+    output_files = {}
+    storage = Path(file_path).parent.joinpath('curated/')  # folder for curation
+    if not storage.exists():
+        storage.mkdir()
+
     # sorts chunks and breaks them up by station ID.
-
     for sub in gen_chunks():
-        chunks.append(sub)
-        for k, v in groupby(sub, key=lambda x: x[0]):  # gets first key, station ID
-            if k not in curated:  # if station doesn't exist, add and append.
-                curated[k] = list(v)
-            else:
-                curated[k].append(list(v))  # station exists, just appending
+        for station, measurements in groupby(sub, key=lambda x: x[0]):  # gets first key, station ID
+            file = Path(storage).joinpath("{0}.csv".format(station))
+            if not exists(file):
+                output_files[station] = create_file(file)
+                csv.writer(output_files[station]).writerow(headers)
+            csv.writer(output_files[station]).writerows(measurements)
+
+    for file in output_files:
+        output_files[file].close()
 
 
-def write_files(file_path, data_set):
-    path = (''.join(file_path.rpartition('\\')[:-1]) + "sorted\\")
-    print("path {0}".format(path))
-    if not os.path.exists(path):
-        os.makedirs(path)
-        print("Created folder sorted at path {0}".format(path))
-
-    for station in data_set:
-        with open("{0}\\{1}.csv".format(path, station), 'w', newline="") as station_file:
-            # print("Creating file for station {0} at {1}".format(station, path))
-            wr = csv.writer(station_file)
-            data_set[station].insert(0, headers[0])
-            wr.writerows(data_set[station])
-
-
-print("Headers are: {0}".format(headers))
+build('test_data.csv', 100)
