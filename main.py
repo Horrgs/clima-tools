@@ -5,7 +5,6 @@ from tkinter import filedialog
 from utils import build
 
 
-
 root = Tk()
 root.title("Clima-tools")
 root.geometry("1000x700")

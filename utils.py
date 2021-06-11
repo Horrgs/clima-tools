@@ -1,25 +1,25 @@
 import csv
 from itertools import groupby
 from pathlib import Path
-from os.path import exists
 
 
+# takes input from GUI and builds the output files.
 def build(file_path, chunk_size=100):
-    file_path = Path(file_path.replace("\\", "/")) # .replace to handle unix/windows support
+    file_path = Path(file_path)  # to handle unix/windows support
     curate(file_path, chunk_size)
 
 
+# the file being created is representative of a weather station's data, written to the path specified in argument.
 def create_file(path):
     return open(path, mode='w', newline='')
 
 
-def curate(file_path, chunk_size=100):
-    reader = csv.reader(open(file_path, 'rt'))  # start reading file. This may keep file open forever??
-    headers = next(reader)
+# this takes the raw data from a raw data file containing multiple stations and writes them to separate files.
+def curate(file_path, chunk_size=4096):
 
-    def gen_chunks():
+    # takes reader of raw data file, break up the raw data file into chunks, allowing faster reading.
+    def gen_chunks(reader):
         chunk = []
-
         for i, line in enumerate(reader):  # create generator for chunks
 
             if i % chunk_size == 0 and i > 0:  # chunk generation
@@ -29,22 +29,26 @@ def curate(file_path, chunk_size=100):
 
         yield chunk
 
-    output_files = {}
-    storage = Path(file_path).parent.joinpath('curated/')  # folder for curation
+    output_files = {}  # dict of each station's file descriptor.
+    storage = Path(file_path).parent.joinpath('curated/')  # folder where each station's file will be written to.
     if not storage.exists():
         storage.mkdir()
+        # run into issues if existing folder/data exists.
 
     # sorts chunks and breaks them up by station ID.
-    for sub in gen_chunks():
-        for station, measurements in groupby(sub, key=lambda x: x[0]):  # gets first key, station ID
-            file = Path(storage).joinpath("{0}.csv".format(station))
-            if not exists(file):
-                output_files[station] = create_file(file)
-                csv.writer(output_files[station]).writerow(headers)
-            csv.writer(output_files[station]).writerows(measurements)
+    with open(file_path, 'rt') as input_file, csv.reader(input_file) as reader:
+        headers = next(reader)  # get headers of raw data file so they can be written to each station.
+        for sub in gen_chunks(reader):
+            for station, measurements in groupby(sub, key=lambda x: x[0]):  # gets first key, station ID
+                if station not in output_files:  # check if station's file (descriptor) exists, if not create
+                    file = Path(storage).joinpath("{0}.csv".format(station))
+                    output_files[station] = create_file(file)
+                    csv.writer(output_files[station]).writerow(headers)
+                csv.writer(output_files[station]).writerows(measurements)  # write data to station file.
 
+    # close files
     for file in output_files:
         output_files[file].close()
 
 
-build('test_data.csv', 100)
+build('test_data.csv', 4096)
