@@ -1,54 +1,76 @@
 import csv
-from itertools import groupby
-from pathlib import Path
+from search import Search
 
 
-# takes input from GUI and builds the output files.
-def build(file_path, chunk_size=100):
-    file_path = Path(file_path)  # to handle unix/windows support
-    curate(file_path, chunk_size)
+# reads file in chunks, allowing faster reading.
+def gen_chunks(reader, chunk_size=4096):
+    chunk = []
+    for i, line in enumerate(reader):  # create generator for chunks
+
+        if i % chunk_size == 0 and i > 0:  # chunk generation
+            yield chunk
+            del chunk[:]
+        chunk.append(line)
+
+    yield chunk
 
 
-# the file being created is representative of a weather station's data, written to the path specified in argument.
-def create_file(path):
-    return open(path, mode='w', newline='')
+# find headers of a CSV file.
+def find_headers(path_file):
+    with open(path_file, 'r') as input_file:
+        reader = csv.reader(input_file)
+        for row in reader:
+            while len(row) > 0 and '' not in row[0:]:
+                return row
+
+    # indexes = [headers.index(i) for i in heads]
+    # this statement can be used to find the index of flagged headers that will be filtered. move upscope not downscope
 
 
-# this takes the raw data from a raw data file containing multiple stations and writes them to separate files.
-def curate(file_path, chunk_size=4096):
+"""
+input - [['1', 3, 5], ['', 2, 9]]
 
-    # takes reader of raw data file, break up the raw data file into chunks, allowing faster reading.
-    def gen_chunks(reader):
-        chunk = []
-        for i, line in enumerate(reader):  # create generator for chunks
+Output format:
+[total, days, [total_entries]]
+total - [1, 5, 14] - counts the total of each measurement.
+days - [1, 2, 2] - counts the total days for each measurement (so after measuring)
+total_entries [2] - counts the total amount of days in data set *being measured.*
 
-            if i % chunk_size == 0 and i > 0:  # chunk generation
-                yield chunk
-                del chunk[:]
-            chunk.append(line)
+"""
 
-        yield chunk
+#
+def get_data_for_columns(data, search: Search):
+    if search.output_headers is not None:  # needs to be kept for now until we figure out alphabetic columns. yikes.
+        curated = [list(row[header_id] for row in data) for header_id in search.output_headers_id]  # filters out unneedeed headers and rearranges lists into index.
+        curated = [list(map(float, filter(None, sublist))) for sublist in curated]  # filters out blankspace & cast floats
 
-    output_files = {}  # dict of each station's file descriptor.
-    storage = Path(file_path).parent.joinpath('curated/')  # folder where each station's file will be written to.
-    if not storage.exists():
-        storage.mkdir()
-        # run into issues if existing folder/data exists.
-
-    # sorts chunks and breaks them up by station ID.
-    with open(file_path, 'rt') as input_file, csv.reader(input_file) as reader:
-        headers = next(reader)  # get headers of raw data file so they can be written to each station.
-        for sub in gen_chunks(reader):
-            for station, measurements in groupby(sub, key=lambda x: x[0]):  # gets first key, station ID
-                if station not in output_files:  # check if station's file (descriptor) exists, if not create
-                    file = Path(storage).joinpath("{0}.csv".format(station))
-                    output_files[station] = create_file(file)
-                    csv.writer(output_files[station]).writerow(headers)
-                csv.writer(output_files[station]).writerows(measurements)  # write data to station file.
-
-    # close files
-    for file in output_files:
-        output_files[file].close()
+        total = [sum(sublist) for sublist in curated]  # sums each sublist (header)
+        days = [len(sublist) for sublist in curated]  # counts days of each sublist.
+        total_days = len(data)  # counts total days of measurement.
+        return [total, days, [total_days]]
 
 
-build('test_data.csv', 4096)
+# takes two lists that are outputted from get_data_columns and combines them in the same output.
+def sum_lists(a, b):
+    output = []
+    for a, b in zip(a, b):
+        output.append([sum(x) for x in zip(*[a, b])])
+    return output
+
+
+"""
+inp = [[0, 445.79999999999995], [0, 31], [31]]
+
+list_a = takes item in list_a and divides by same index in list b (total / total_days of each measurement)
+list_b = unchanged, see other notes.
+list_c = unchanged.
+list_d = measures data accuracy for each measurement for month.
+Output:
+oup = [[0, 14.38], [0, 31], [31], [0%, 100%]] 
+"""
+
+def curate_list(input_list):
+    lst_a = [a / b for a, b in zip(input_list[0], input_list[1])]
+    val = input_list[2][0]
+    lst_d = [input_list[1][i] / val for i in range(len(input_list[1]))]
+    return [lst_a, input_list[1], input_list[2], lst_d]
